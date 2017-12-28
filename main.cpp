@@ -2,6 +2,7 @@
 #include <ptrac_file.h>
 #include <TFile.h>
 #include <TTree.h>
+#include <TClonesArray.h>
 
 static const char *
 ptrac_variable_type_names[] =
@@ -191,6 +192,7 @@ ptrac_parse_header(struct PtracFile *f)
 			n_col++;
 			if (n_col == 30) {
 				n_col = 0;
+				f->lineno++;
 				fgets(line, MAX_LINE_BUF, f->file);
 				endptr = line;
 				startptr = line;
@@ -207,12 +209,59 @@ ptrac_parse_header(struct PtracFile *f)
 }
 
 int
-ptrac_event_to_root_tree(struct PtracHeader *h, struct PtracFile *f, TTree *t)
+ptrac_parse_event(struct PtracHeader *h, struct PtracFile *f,
+    struct PtracEvent *ev)
 {
-	(void)h;
-	(void)f;
-	(void)t;
+	size_t i;
+	char line[MAX_LINE_BUF];
+	char *startptr, *endptr;
+
+	/* Read NPS (event start) line */
+	f->lineno++;
+	fgets(line, MAX_LINE_BUF, f->file);
+	endptr = line;
+	startptr = line;
+
+	for (i = 0; i < h->nps_format.n_variables_a; ++i) {
+		int val;
+		val = strtol(startptr, &endptr, 10);
+		startptr = endptr;
+		switch(h->nps_format.variable_types[i]) {
+		case PVT_NPS:
+			ev->nps = val;
+			break;
+		case PVT_TFH:
+			ev->initial_type = (enum PtracEventType)val;
+			break;
+		case PVT_NCL_NPS:
+			ev->initial_cell = val;
+			break;
+		default:
+			printf("Unhandled NPS line field.\n");
+			abort();
+		}
+		printf("%s = %d\n", ptrac_variable_type_names[
+		    h->nps_format.variable_types[i]], val);
+	}
+
 	return 0;
+}
+
+void
+init_root_tree(struct PtracEvent *ev, TTree *t, TClonesArray *array)
+{
+	/* Setup branches */
+	t->Branch("NPS", &ev->nps, "NPS/l");
+	t->Branch("InitialType", (int *)&ev->initial_type, "InitialType/I");
+	t->Branch("InitialCell", &ev->initial_cell, "InitialCell/l");
+	t->Branch("PtracSteps", array);
+}
+
+void
+ptrac_to_root_tree(struct PtracEvent *ev, TTree *t)
+{
+	(void)ev;
+	(void)t;
 }
 
 int
@@ -229,13 +278,20 @@ main(int argc, char *argv[])
 	auto tree = new TTree("events", "events");
 
 	struct PtracHeader *h = ptrac_parse_header(input);
+	struct PtracEvent *ev;
+
+	ev = (struct PtracEvent *)malloc(sizeof(struct PtracEvent));
+	TClonesArray array("PtracStep", PTRAC_MAX_N_STEPS);
+
+	init_root_tree(ev, tree, &array);
 
 	for (;;) {
-		int ok;
-		ok = ptrac_event_to_root_tree(h, input, tree);
-		if (!ok) {
+		int ok = 0;
+		ok = ptrac_parse_event(h, input, ev);
+		if (ok == 0) {
 			break;
 		}
+		ptrac_to_root_tree(ev, tree);
 	}
 
 	ptrac_close_file(input);

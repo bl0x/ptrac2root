@@ -1,0 +1,7 @@
+*.swp
+*.pcm
+*.o
+ptrac2root
+*.root
+*_dict.cc
+*_dict.o

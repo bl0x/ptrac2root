@@ -9,6 +9,7 @@ struct PtracFile
 };
 
 #define PTRAC_N_LINE_TYPES 5
+#define PTRAC_MAX_N_STEPS 100
 
 enum PtracVariableType
 {
@@ -58,6 +59,42 @@ struct PtracLineFormat
 	size_t n_variables_a;
 	size_t n_variables_b;
 	enum PtracVariableType *variable_types;
+};
+
+struct PtracStep
+{
+	int next_event_type;
+	int n_nodes; /* NODE */
+	int source_number;  /* NSR */
+	int zzaaa;         /* NXS */
+	int recation_type;  /* NYTN */
+	int surface_number; /* NSF */
+	int angle;         /* in degrees */
+	int termination_type; /* NTER */
+	int branch_number;
+	int particle_type;  /* IPT */
+	int cell_number;    /* NCL */
+	int material_number; /* MAT */
+	int n_collisions; /* NCP */
+
+	double x;
+	double y;
+	double z;
+	double u;
+	double v;
+	double w;
+	double energy;
+	double weight;
+	double time;
+};
+
+struct PtracEvent
+{
+	size_t nps;
+	enum PtracEventType initial_type;
+	size_t initial_cell;
+	size_t n_steps;
+	struct PtracStep *steps[PTRAC_MAX_N_STEPS];
 };
 
 struct PtracHeader
