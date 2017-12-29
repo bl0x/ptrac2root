@@ -3,6 +3,7 @@
 #include <TFile.h>
 #include <TTree.h>
 #include <TClonesArray.h>
+#include <PtracStep.h>
 
 static const char *
 ptrac_variable_type_names[] =
@@ -69,6 +70,18 @@ ptrac_close_file(struct PtracFile *f)
 }
 
 #define MAX_LINE_BUF 255
+
+static const enum PtracEventType ptrac_event_types[] =
+{
+	PET_NPS,
+	PET_SRC,
+	PET_BNK,
+	PET_SUR,
+	PET_COL,
+	PET_TER,
+	PET_END,
+	PET_INVALID
+};
 
 struct PtracHeader *
 ptrac_parse_header(struct PtracFile *f)
@@ -151,7 +164,10 @@ ptrac_parse_header(struct PtracFile *f)
 	h->nps_format.variable_types = (enum PtracVariableType *)
 	    malloc(sizeof(enum PtracVariableType)
 		* h->nps_format.n_variables_a);
-	for (i = 0; i < PTRAC_N_LINE_TYPES; ++i) {
+
+	for (i = 1; i < PTRAC_N_LINE_TYPES; ++i) {
+
+		h->format[i].type = ptrac_event_types[i];
 		h->format[i].n_variables_a = strtol(startptr, &endptr, 10);
 		startptr = endptr;
 		h->format[i].n_variables_b = strtol(startptr, &endptr, 10);
@@ -161,6 +177,7 @@ ptrac_parse_header(struct PtracFile *f)
 			* (h->format[i].n_variables_a
 				+ h->format[i].n_variables_b));
 	}
+
 	h->transport_particle = strtol(startptr, &endptr, 10);
 	startptr = endptr;
 	printf("Transport particle = %d\n", h->transport_particle);
@@ -181,8 +198,8 @@ ptrac_parse_header(struct PtracFile *f)
 		printf("NPS[%lu] = '%s'\n", i, ptrac_variable_type_names[
 		    h->nps_format.variable_types[i]]);
 	}
-	n_col = 0;
-	for (n = 0; n < PTRAC_N_LINE_TYPES; ++n) {
+	n_col = 3;
+	for (n = 1; n < PTRAC_N_LINE_TYPES; ++n) {
 		size_t cols = h->format[n].n_variables_a
 		    + h->format[n].n_variables_b;
 		for (i = 0; i < cols; ++i) {
@@ -199,7 +216,7 @@ ptrac_parse_header(struct PtracFile *f)
 			}
 			h->format[n].variable_types[i] =
 			    (enum PtracVariableType)val;
-			printf("TYPE%lu[%lu] = '%s'\n", n, i,
+			printf("TYPE%d[%lu] = '%s'\n", ptrac_event_types[n], i,
 			    ptrac_variable_type_names[
 			    h->format[n].variable_types[i]]);
 		}
@@ -209,12 +226,40 @@ ptrac_parse_header(struct PtracFile *f)
 }
 
 int
+is_valid_event_type(enum PtracEventType type)
+{
+	enum PtracEventType t = type;
+
+	/* Handle various BNK types */
+	if (((t / 1000) * 1000) == PET_BNK) {
+		t = (enum PtracEventType) ((t / 1000) * 1000);
+	}
+
+	switch(t)
+	{
+	case PET_NPS:
+	case PET_BNK:
+	case PET_SRC:
+	case PET_SUR:
+	case PET_COL:
+	case PET_TER:
+	case PET_END:
+		return 1;
+	default:
+		return 0;
+	}
+}
+
+int
 ptrac_parse_event(struct PtracHeader *h, struct PtracFile *f,
     struct PtracEvent *ev)
 {
 	size_t i;
 	char line[MAX_LINE_BUF];
 	char *startptr, *endptr;
+	int last_format_id;
+	enum PtracEventType last_event_type;
+	int is_last_step;
 
 	/* Read NPS (event start) line */
 	f->lineno++;
@@ -244,7 +289,230 @@ ptrac_parse_event(struct PtracHeader *h, struct PtracFile *f,
 		    h->nps_format.variable_types[i]], val);
 	}
 
-	return 0;
+	printf("event %lu\n", ev->nps);
+
+	/* Read all event lines until PET_END */
+	ev->n_steps = 0;
+	last_format_id = 0;
+	last_event_type = PET_INVALID;
+	is_last_step = 0;
+	for (;;) {
+		enum PtracEventType event_type;
+		int format_id;
+		enum PtracBankSource bnk_source;
+
+		printf("  step %lu\n", ev->n_steps);
+
+		/* Read first step line */
+		f->lineno++;
+		fgets(line, MAX_LINE_BUF, f->file);
+		endptr = line;
+		startptr = line;
+
+		event_type = (enum PtracEventType)strtol(startptr, &endptr, 10);
+		startptr = endptr;
+
+		if(!is_valid_event_type(event_type)) {
+			printf("Invalid event type '%d' in line %lu\n",
+			    (int)event_type, f->lineno);
+			abort();
+		}
+
+		if (ev->n_steps + 1 == PTRAC_MAX_N_STEPS) {
+			printf("Error: Too many steps (> %d) in event.\n",
+			    PTRAC_MAX_N_STEPS);
+			printf("       Increase PTRAC_MAX_N_STEPS.\n");
+			abort();
+		}
+
+		/* Handle PET_BNK numbers */
+		if ((event_type / 1000) * 1000 == PET_BNK) {
+			bnk_source = (enum PtracBankSource)(event_type % 1000);
+			event_type = (enum PtracEventType)
+			    ((event_type / 1000) * 1000);
+			ev->steps[ev->n_steps]->bank_source = bnk_source;
+		}
+
+		/* Handle PET_END flag */
+		if (event_type == PET_END) {
+			is_last_step = 1;
+			event_type = last_event_type;
+			format_id = last_format_id;
+		}
+
+		format_id = -1;
+		for (i = 0; i < PTRAC_N_LINE_TYPES; ++i) {
+			if (h->format[i].type == event_type) {
+				format_id = i;
+			}
+		}
+		if (format_id == -1) {
+			printf("Unhandled event type '%d' in line %lu\n",
+			    (int)event_type, f->lineno);
+			abort();
+		} else {
+			printf("  format id = %d\n", format_id);
+		}
+
+		for (i = 1; i < h->format[format_id].n_variables_a; ++i) {
+			int val;
+			val = strtol(startptr, &endptr, 10);
+			startptr = endptr;
+			enum PtracVariableType var_type =
+			    h->format[format_id].variable_types[i];
+
+			printf("    field col %lu\n", i);
+			switch(var_type) {
+			case PVT_NET:
+				ev->steps[ev->n_steps]->next_event_type = val;
+				break;
+			case PVT_NODE:
+				ev->steps[ev->n_steps]->n_nodes = val;
+				break;
+			case PVT_NSR:
+				ev->steps[ev->n_steps]->source_number = val;
+				break;
+			case PVT_NXS:
+				ev->steps[ev->n_steps]->zzaaa = val;
+				break;
+			case PVT_NYTN:
+				ev->steps[ev->n_steps]->reaction_type = val;
+				break;
+			case PVT_NSF:
+				ev->steps[ev->n_steps]->surface_number = val;
+				break;
+			case PVT_ASN:
+				ev->steps[ev->n_steps]->angle = val;
+				break;
+			case PVT_NTER:
+				ev->steps[ev->n_steps]->termination_type = val;
+				break;
+			case PVT_BN:
+				ev->steps[ev->n_steps]->branch_number = val;
+				break;
+			case PVT_IPT:
+				ev->steps[ev->n_steps]->particle_type = val;
+				break;
+			case PVT_NCL:
+				ev->steps[ev->n_steps]->cell_number = val;
+				break;
+			case PVT_MAT:
+				ev->steps[ev->n_steps]->material_number = val;
+				break;
+			case PVT_NCP:
+				ev->steps[ev->n_steps]->n_collisions = val;
+				break;
+			default:
+				printf("Unhandled event line 1 field "
+				    "(%d = %s).\n", var_type,
+				    ptrac_variable_type_names[var_type]);
+				abort();
+			}
+			printf("      %s = %d\n", ptrac_variable_type_names[
+			    var_type], val);
+		}
+
+		/* Read second step line */
+		f->lineno++;
+		fgets(line, MAX_LINE_BUF, f->file);
+		endptr = line;
+		startptr = line;
+
+		for (i = 0; i < h->format[format_id].n_variables_b; ++i) {
+			double val;
+			val = strtod(startptr, &endptr);
+			startptr = endptr;
+			enum PtracVariableType var_type =
+			    h->format[format_id].variable_types[
+			        h->format[format_id].n_variables_a + i];
+			printf("    field col %lu\n", i);
+			switch(var_type) {
+			case PVT_NET:
+				ev->steps[ev->n_steps]->next_event_type = val;
+				break;
+			case PVT_NODE:
+				ev->steps[ev->n_steps]->n_nodes = val;
+				break;
+			case PVT_NXS:
+				ev->steps[ev->n_steps]->zzaaa = val;
+				break;
+			case PVT_NYTN:
+				ev->steps[ev->n_steps]->reaction_type = val;
+				break;
+			case PVT_NSF:
+				ev->steps[ev->n_steps]->surface_number = val;
+				break;
+			case PVT_ASN:
+				ev->steps[ev->n_steps]->angle = val;
+				break;
+			case PVT_IPT:
+				ev->steps[ev->n_steps]->particle_type = val;
+				break;
+			case PVT_NTER:
+				ev->steps[ev->n_steps]->termination_type = val;
+				break;
+			case PVT_BN:
+				ev->steps[ev->n_steps]->branch_number = val;
+				break;
+			case PVT_NCL:
+				ev->steps[ev->n_steps]->cell_number = val;
+				break;
+			case PVT_MAT:
+				ev->steps[ev->n_steps]->material_number = val;
+				break;
+			case PVT_NCP:
+				ev->steps[ev->n_steps]->n_collisions = val;
+				break;
+			case PVT_XXX:
+				ev->steps[ev->n_steps]->x = val;
+				break;
+			case PVT_YYY:
+				ev->steps[ev->n_steps]->y = val;
+				break;
+			case PVT_ZZZ:
+				ev->steps[ev->n_steps]->z = val;
+				break;
+			case PVT_UUU:
+				ev->steps[ev->n_steps]->u = val;
+				break;
+			case PVT_VVV:
+				ev->steps[ev->n_steps]->v = val;
+				break;
+			case PVT_WWW:
+				ev->steps[ev->n_steps]->w = val;
+				break;
+			case PVT_ERG:
+				ev->steps[ev->n_steps]->energy = val;
+				break;
+			case PVT_WGT:
+				ev->steps[ev->n_steps]->weight = val;
+				break;
+			case PVT_TME:
+				ev->steps[ev->n_steps]->time = val;
+				break;
+			default:
+				printf("Unhandled event line 2 field "
+				    "(%d = %s).\n", var_type,
+				    ptrac_variable_type_names[var_type]);
+				abort();
+			}
+			printf("      %s = %lf\n", ptrac_variable_type_names[
+			    var_type], val);
+		}
+
+		++ev->n_steps;
+		if (is_last_step) {
+			break;
+		}
+		last_format_id = format_id;
+		last_event_type = event_type;
+	}
+
+	if (ev->nps == 5) {
+		return 0;
+	} else {
+		return 1;
+	}
 }
 
 void
@@ -258,15 +526,43 @@ init_root_tree(struct PtracEvent *ev, TTree *t, TClonesArray *array)
 }
 
 void
-ptrac_to_root_tree(struct PtracEvent *ev, TTree *t)
+ptrac_to_root_tree(struct PtracEvent *ev, TTree *t, TClonesArray *array)
 {
-	(void)ev;
-	(void)t;
+	size_t n;
+	for (n = 0; n < ev->n_steps; ++n) {
+		auto step = (PtracStep *)array->ConstructedAt(n);
+		step->fNextEventType = ev->steps[n]->next_event_type;
+		step->fNumberOfNodes = ev->steps[n]->n_nodes;
+		step->fSourceNumber = ev->steps[n]->source_number;
+		step->fBankSource = ev->steps[n]->bank_source;
+		step->fZZAAA = ev->steps[n]->zzaaa;
+		step->fReactionType = ev->steps[n]->reaction_type;
+		step->fSurfaceNumber = ev->steps[n]->surface_number;
+		step->fAngle = ev->steps[n]->angle;
+		step->fTerminationType = ev->steps[n]->termination_type;
+		step->fBranchNumber = ev->steps[n]->branch_number;
+		step->fParticleType = ev->steps[n]->particle_type;
+		step->fCellNumber = ev->steps[n]->cell_number;
+		step->fMaterialNumber = ev->steps[n]->material_number;
+		step->fNumberOfCollisions = ev->steps[n]->n_collisions;
+		step->fX = ev->steps[n]->x;
+		step->fY = ev->steps[n]->y;
+		step->fZ = ev->steps[n]->z;
+		step->fU = ev->steps[n]->u;
+		step->fV = ev->steps[n]->v;
+		step->fW = ev->steps[n]->w;
+		step->fEnergy = ev->steps[n]->energy;
+		step->fWeight = ev->steps[n]->weight;
+		step->fTime = ev->steps[n]->time;
+	}
+	t->Fill();
+	array->Clear();
 }
 
 int
 main(int argc, char *argv[])
 {
+	size_t i;
 	if (argc < 3) {
 		printf("Usage: %s <ptrac input file> <n input lines>\n",
 		    argv[0]);
@@ -281,6 +577,9 @@ main(int argc, char *argv[])
 	struct PtracEvent *ev;
 
 	ev = (struct PtracEvent *)malloc(sizeof(struct PtracEvent));
+	for (i = 0; i < PTRAC_MAX_N_STEPS; ++i) {
+		ev->steps[i] = (PtracTrack *)malloc(sizeof(struct PtracTrack));
+	}
 	TClonesArray array("PtracStep", PTRAC_MAX_N_STEPS);
 
 	init_root_tree(ev, tree, &array);
@@ -291,10 +590,11 @@ main(int argc, char *argv[])
 		if (ok == 0) {
 			break;
 		}
-		ptrac_to_root_tree(ev, tree);
+		ptrac_to_root_tree(ev, tree, &array);
 	}
 
 	ptrac_close_file(input);
+	tree->Write();
 	output->Close();
 
 	return 0;

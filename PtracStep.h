@@ -6,6 +6,7 @@ class PtracStep : public TObject
 		int fNextEventType;
 		int fNumberOfNodes; /* NODE */
 		int fSourceNumber;  /* NSR */
+		int fBankSource;
 		int fZZAAA;         /* NXS */
 		int fReactionType;  /* NYTN */
 		int fSurfaceNumber; /* NSF */
