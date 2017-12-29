@@ -345,6 +345,7 @@ ptrac_parse_event(struct PtracHeader *h, struct PtracFile *f,
 			printf("  format id = %d\n", format_id);
 		}
 
+		ev->steps[ev->n_steps]->event_type = event_type;
 		for (i = 0; i < h->format[format_id].n_variables_a; ++i) {
 			int val;
 			val = strtol(startptr, &endptr, 10);
@@ -355,7 +356,8 @@ ptrac_parse_event(struct PtracHeader *h, struct PtracFile *f,
 			printf("    field col %lu\n", i);
 			switch(var_type) {
 			case PVT_NET:
-				ev->steps[ev->n_steps]->next_event_type = val;
+				ev->steps[ev->n_steps]->next_event_type =
+				    (enum PtracEventType)(val);
 				break;
 			case PVT_NODE:
 				ev->steps[ev->n_steps]->n_nodes = val;
@@ -418,9 +420,6 @@ ptrac_parse_event(struct PtracHeader *h, struct PtracFile *f,
 			        h->format[format_id].n_variables_a + i];
 			printf("    field col %lu\n", i);
 			switch(var_type) {
-			case PVT_NET:
-				ev->steps[ev->n_steps]->next_event_type = val;
-				break;
 			case PVT_NODE:
 				ev->steps[ev->n_steps]->n_nodes = val;
 				break;
@@ -520,6 +519,7 @@ ptrac_to_root_tree(struct PtracEvent *ev, TTree *t, TClonesArray *array)
 	size_t n;
 	for (n = 0; n < ev->n_steps; ++n) {
 		auto step = (PtracStep *)array->ConstructedAt(n);
+		step->fEventType = ev->steps[n]->event_type;
 		step->fNextEventType = ev->steps[n]->next_event_type;
 		step->fNumberOfNodes = ev->steps[n]->n_nodes;
 		step->fSourceNumber = ev->steps[n]->source_number;

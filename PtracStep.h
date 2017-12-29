@@ -3,6 +3,7 @@
 class PtracStep : public TObject
 {
 	public:
+		int fEventType;
 		int fNextEventType;
 		int fNumberOfNodes; /* NODE */
 		int fSourceNumber;  /* NSR */

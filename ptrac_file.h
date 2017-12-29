@@ -43,7 +43,10 @@ enum PtracVariableType
 	PVT_TME
 };
 
-/* from table I-6 in LA-13709-M */
+/*
+ * from table I-6 in LA-13709-M
+ * and Appendix F, table 13-6 LA-CP-13-00634, Rev. 0
+ */
 enum PtracBankSource
 {
 	PBS_NONE,
@@ -70,6 +73,14 @@ enum PtracBankSource
 	PBS_NEUTRON_N_XN_K_MG,
 	PBS_PHOTON_FROM_PHOTON,
 	PBS_ADJOINT_WEIGHT_SPLIT,
+	PBS_WEIGHT_WINDOW_PSEUDO_COLLISION_SPLIT,
+	PBS_SECONDARY_FROM_PHOTONUCLEAR,
+	PBS_DXTRAN_ANNIHILATION_PHOTON,
+	PBS_LIGHT_IONS_FROM_NEUTRONS=30,
+	PBS_LIGHT_IONS_FROM_PROTONS=31,
+	PBS_LIBRARY_NEUTRONS_FROM_MODEL_NEUTRONS=32,
+	PBS_SECONDARY_FROM_INELASTIC_NUCLEAR=33,
+	PBS_SECONDARY_FROM_ELASTIC_NUCLEAR=34,
 	PBS_INVALID
 };
 
@@ -95,7 +106,8 @@ struct PtracLineFormat
 
 struct PtracTrack
 {
-	int next_event_type;
+	enum PtracEventType event_type;
+	enum PtracEventType next_event_type;
 	int n_nodes; /* NODE */
 	int source_number;  /* NSR */
 	int bank_source;
