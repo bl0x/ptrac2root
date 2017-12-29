@@ -198,7 +198,7 @@ ptrac_parse_header(struct PtracFile *f)
 		printf("NPS[%lu] = '%s'\n", i, ptrac_variable_type_names[
 		    h->nps_format.variable_types[i]]);
 	}
-	n_col = 3;
+	n_col = h->nps_format.n_variables_a;
 	for (n = 1; n < PTRAC_N_LINE_TYPES; ++n) {
 		size_t cols = h->format[n].n_variables_a
 		    + h->format[n].n_variables_b;
@@ -397,8 +397,9 @@ ptrac_parse_event(struct PtracHeader *h, struct PtracFile *f,
 				break;
 			default:
 				printf("Unhandled event line 1 field "
-				    "(%d = %s).\n", var_type,
-				    ptrac_variable_type_names[var_type]);
+				    "(%d = %s). in line %lu\n", var_type,
+				    ptrac_variable_type_names[var_type],
+				    f->lineno);
 				abort();
 			}
 			printf("      %s = %d\n", ptrac_variable_type_names[
@@ -482,8 +483,9 @@ ptrac_parse_event(struct PtracHeader *h, struct PtracFile *f,
 				break;
 			default:
 				printf("Unhandled event line 2 field "
-				    "(%d = %s).\n", var_type,
-				    ptrac_variable_type_names[var_type]);
+				    "(%d = %s) in line %lu.\n", var_type,
+				    ptrac_variable_type_names[var_type],
+				    f->lineno);
 				abort();
 			}
 			printf("      %s = %lf\n", ptrac_variable_type_names[
