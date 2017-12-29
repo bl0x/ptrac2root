@@ -10,10 +10,29 @@ produces a ROOT file as output. This ROOT file contains a TTree with all the
 events from the PTRAC input file.
 
 
+Requirements
+------------
+
+Installation of ROOT analysis framework (tested with version 6.x).
+
+
+Installation
+------------
+
+Download from github:
+
+    git clone https://github.com/bl0x/ptrac2root.git
+
+And build the executable:
+
+    cd ptrac2root
+    make
+
+
 Synopsis
 --------
 
-ptrac2root input k
+`ptrac2root input k`
 
 - input: The PTRAC input file
 - k: The number of input lines in the input file
