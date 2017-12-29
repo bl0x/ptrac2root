@@ -257,9 +257,7 @@ ptrac_parse_event(struct PtracHeader *h, struct PtracFile *f,
 	size_t i;
 	char line[MAX_LINE_BUF];
 	char *startptr, *endptr;
-	int last_format_id;
-	enum PtracEventType last_event_type;
-	int is_last_step;
+	enum PtracEventType event_type;
 	char *ret;
 
 	/* Read NPS (event start) line */
@@ -297,12 +295,8 @@ ptrac_parse_event(struct PtracHeader *h, struct PtracFile *f,
 
 	/* Read all event lines until PET_END */
 	ev->n_steps = 0;
-	last_format_id = 0;
-	last_event_type =
-	    (enum PtracEventType)((ev->initial_type / 1000) * 1000);
-	is_last_step = 0;
+	event_type = (enum PtracEventType)((ev->initial_type / 1000) * 1000);
 	for (;;) {
-		enum PtracEventType event_type;
 		int format_id;
 		enum PtracBankSource bnk_source;
 
@@ -314,8 +308,6 @@ ptrac_parse_event(struct PtracHeader *h, struct PtracFile *f,
 		endptr = line;
 		startptr = line;
 
-		event_type = (enum PtracEventType)strtol(startptr, &endptr, 10);
-		startptr = endptr;
 		printf("  event_type %d\n", event_type);
 
 		if(!is_valid_event_type(event_type)) {
@@ -339,13 +331,6 @@ ptrac_parse_event(struct PtracHeader *h, struct PtracFile *f,
 			ev->steps[ev->n_steps]->bank_source = bnk_source;
 		}
 
-		/* Handle PET_END flag */
-		if (event_type == PET_END) {
-			is_last_step = 1;
-			event_type = last_event_type;
-			format_id = last_format_id;
-		}
-
 		format_id = -1;
 		for (i = 0; i < PTRAC_N_LINE_TYPES; ++i) {
 			if (h->format[i].type == event_type) {
@@ -353,14 +338,14 @@ ptrac_parse_event(struct PtracHeader *h, struct PtracFile *f,
 			}
 		}
 		if (format_id == -1) {
-			printf("Unhandled event type '%d' in line %lu\n",
+			printf("Unhandled next event type '%d' in line %lu\n",
 			    (int)event_type, f->lineno);
 			abort();
 		} else {
 			printf("  format id = %d\n", format_id);
 		}
 
-		for (i = 1; i < h->format[format_id].n_variables_a; ++i) {
+		for (i = 0; i < h->format[format_id].n_variables_a; ++i) {
 			int val;
 			val = strtol(startptr, &endptr, 10);
 			startptr = endptr;
@@ -507,11 +492,13 @@ ptrac_parse_event(struct PtracHeader *h, struct PtracFile *f,
 		}
 
 		++ev->n_steps;
-		if (is_last_step) {
+		event_type =(enum PtracEventType)
+		    (ev->steps[ev->n_steps-1]->next_event_type);
+
+		if (event_type == PET_END) {
+			printf("  Found final step marker.\n");
 			break;
 		}
-		last_format_id = format_id;
-		last_event_type = event_type;
 	}
 
 	return 1;
