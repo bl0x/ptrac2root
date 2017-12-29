@@ -260,10 +260,14 @@ ptrac_parse_event(struct PtracHeader *h, struct PtracFile *f,
 	int last_format_id;
 	enum PtracEventType last_event_type;
 	int is_last_step;
+	char *ret;
 
 	/* Read NPS (event start) line */
 	f->lineno++;
-	fgets(line, MAX_LINE_BUF, f->file);
+	ret = fgets(line, MAX_LINE_BUF, f->file);
+	if (ret == NULL) {
+		return 0;
+	}
 	endptr = line;
 	startptr = line;
 
@@ -294,7 +298,8 @@ ptrac_parse_event(struct PtracHeader *h, struct PtracFile *f,
 	/* Read all event lines until PET_END */
 	ev->n_steps = 0;
 	last_format_id = 0;
-	last_event_type = PET_INVALID;
+	last_event_type =
+	    (enum PtracEventType)((ev->initial_type / 1000) * 1000);
 	is_last_step = 0;
 	for (;;) {
 		enum PtracEventType event_type;
@@ -311,6 +316,7 @@ ptrac_parse_event(struct PtracHeader *h, struct PtracFile *f,
 
 		event_type = (enum PtracEventType)strtol(startptr, &endptr, 10);
 		startptr = endptr;
+		printf("  event_type %d\n", event_type);
 
 		if(!is_valid_event_type(event_type)) {
 			printf("Invalid event type '%d' in line %lu\n",
@@ -508,11 +514,7 @@ ptrac_parse_event(struct PtracHeader *h, struct PtracFile *f,
 		last_event_type = event_type;
 	}
 
-	if (ev->nps == 5) {
-		return 0;
-	} else {
-		return 1;
-	}
+	return 1;
 }
 
 void
